@@ -1,7 +1,7 @@
 # tmuxbar
 
 A themed tmux status bar: a row of small widget scripts on each side, a centred
-window list, and ten built-in colour schemes with a `prefix + T` picker.
+window list, and thirty-two built-in colour schemes with a `prefix + T` picker.
 
 ## Install
 
@@ -65,17 +65,34 @@ add `<name>` to a plugin list. Source `lib/utils.sh` for `get_tmux_option`,
 `prefix + T` opens a menu of every available theme and applies it instantly. The
 pick is remembered in `~/.cache/tmuxbar/theme`, so it survives a tmux restart and
 takes precedence over `@tmuxbar-theme` until you choose *reset to config default*.
+tmux silently refuses a menu taller than the window, so the list is cut to fit and
+carries on behind a *more...* entry.
 
-Bundled: `default`, `nordfox`, `carbonfox`, `duskfox`, `terafox`, `dawnfox` (light),
-`catppuccin-mocha`, `gruvbox-dark`, `tokyonight-storm`, `rose-pine`.
+Each bundled theme lifts its nine colours from the matching Neovim colourscheme's
+own palette, so an editor and its status bar can be moved between themes by name.
 
-There is also a CLI, which the menu entries call:
+| Family | Themes |
+| --- | --- |
+| — | `default`, `onedark` |
+| Catppuccin | `catppuccin-mocha`, `catppuccin-macchiato`, `catppuccin-frappe`, `catppuccin-latte` (light) |
+| Tokyo Night | `tokyonight-night`, `tokyonight-storm`, `tokyonight-moon`, `tokyonight-day` (light) |
+| Rose Pine | `rose-pine`, `rose-pine-moon`, `rose-pine-dawn` (light) |
+| Nightfox | `nightfox`, `duskfox`, `nordfox`, `terafox`, `carbonfox`, `dayfox` (light), `dawnfox` (light) |
+| Kanagawa | `kanagawa-wave`, `kanagawa-dragon`, `kanagawa-lotus` (light) |
+| Gruvbox | `gruvbox-dark`, `gruvbox-light` (light) |
+| Everforest | `everforest-dark`, `everforest-light` (light) |
+| Dracula | `dracula`, `dracula-soft` |
+| Oxocarbon | `oxocarbon-dark`, `oxocarbon-light` (light) |
+| Nord | `nord` |
+
+There is also a CLI, which the key binding and the menu entries call:
 
 ```bash
 bin/tmuxbar-theme list
 bin/tmuxbar-theme current
 bin/tmuxbar-theme set rose-pine
 bin/tmuxbar-theme set -          # back to @tmuxbar-theme
+bin/tmuxbar-theme menu           # what prefix + T runs
 ```
 
 ### Writing a theme
@@ -114,7 +131,7 @@ accent='#81a1c1'
 
 ```
 tmuxbar.tmux        entry point; generates every tmux option the bar needs
-bin/tmuxbar-theme   theme picker back end
+bin/tmuxbar-theme   theme picker: draws the prefix + T menu, applies a pick
 lib/theme.sh        theme resolution and loading
 lib/utils.sh        helpers shared by the bar and the widgets
 plugins/            one script per widget
