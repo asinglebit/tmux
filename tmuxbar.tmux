@@ -114,27 +114,12 @@ window_list() {
     tmux set-window-option -g window-status-format "#[fg=${muted},bg=${bg}] #I:#W "
 }
 
-# Rebuilt on each apply so the active marker stays accurate and new files in
-# ~/.config/tmuxbar/themes show up without a reload.
+# The menu itself is built by bin/tmuxbar-theme on open, so the active marker
+# stays accurate, new files in ~/.config/tmuxbar/themes show up without a
+# reload, and the list can be sliced to what the client is tall enough to show.
 bind_theme_menu() {
     [ "$theme_key" = none ] && return 0
-
-    # One hotkey per theme; 0 is held back for the reset entry below.
-    local keys='123456789abcdefgijklmnopqrsuvwxyz'
-    local menu=() i=0 name marker
-
-    while IFS= read -r name; do
-        [ -n "$name" ] || continue
-        marker=''
-        [ "$name" = "$tmuxbar_theme_name" ] && marker=' ●'
-        menu+=("${name}${marker}" "${keys:$i:1}" "run-shell '$root/bin/tmuxbar-theme set $name'")
-        i=$((i + 1))
-    done < <(tmuxbar_list_themes)
-
-    menu+=('') # horizontal rule
-    menu+=('reset to config default' '0' "run-shell '$root/bin/tmuxbar-theme set -'")
-
-    tmux bind-key "$theme_key" display-menu -T ' theme ' -x C -y C "${menu[@]}"
+    tmux bind-key "$theme_key" run-shell "$root/bin/tmuxbar-theme menu"
 }
 
 apply_theme
