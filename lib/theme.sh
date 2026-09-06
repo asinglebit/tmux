@@ -6,14 +6,14 @@
 # named by role rather than by lightness, so a light theme (dawnfox) works by
 # assigning light values to $bg -- there is no special casing anywhere else.
 #
-#   bg          status bar and window list background
-#   bg_dim      inactive pane background
+#   bg          status bar and window list background, pane background
+#   bg_dim      reserved; unfocused panes are no longer dimmed
 #   surface     plugin background, pane borders
 #   surface_hi  first/last plugin (the end caps) background
 #   muted       inactive window name
-#   dim         inactive pane foreground
+#   dim         reserved; unfocused panes are no longer dimmed
 #   fg          status foreground, plugin text
-#   fg_hi       end cap text, active pane foreground
+#   fg_hi       end cap text, pane foreground
 #   accent      prefix-active highlight background (its text uses $bg)
 #
 # Drop a file with those nine assignments into ~/.config/tmuxbar/themes/ and it
