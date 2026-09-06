@@ -29,5 +29,24 @@ truncate_path() {
     fi
 }
 
+# tmux reports a pane's cwd as the kernel sees it, with every symlink already
+# resolved, while $HOME keeps whatever spelling the login gave it. The two differ
+# on image-based distributions -- /home is a symlink to /var/home on ostree
+# systems, so $HOME is /home/user while the pane reports /var/home/user -- and a
+# single substitution silently misses, leaving the bar showing an unabbreviated
+# absolute path. Try both spellings.
+home_relative() {
+    local path=$1 home_real
+    home_real=$(cd "$HOME" 2>/dev/null && pwd -P) || home_real=$HOME
+
+    case $path in
+    "$HOME") echo '~' ;;
+    "$HOME"/*) echo "~${path#"$HOME"}" ;;
+    "$home_real") echo '~' ;;
+    "$home_real"/*) echo "~${path#"$home_real"}" ;;
+    *) echo "$path" ;;
+    esac
+}
+
 cwd=$(pane_cwd)
-echo "$icon $(truncate_path "${cwd/#$HOME/~}")"
+echo "$icon $(truncate_path "$(home_relative "$cwd")")"

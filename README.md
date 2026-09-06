@@ -8,7 +8,7 @@ window list, and ten built-in colour schemes with a `prefix + T` picker.
 With [tpm](https://github.com/tmux-plugins/tpm), in `~/.tmux.conf`:
 
 ```tmux
-set -g @plugin 'asinglebit/tmuxbar'
+set -g @plugin 'asinglebit/tmux'
 set -g @tmuxbar-theme 'nordfox'
 set -g @tmuxbar-left-plugins "session git cwd"
 set -g @tmuxbar-right-plugins "cpu ram battery network time"
