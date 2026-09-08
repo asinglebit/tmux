@@ -40,9 +40,8 @@ set_options() {
     tmux set-option -g message-style "bg=${bg},fg=${fg}"
     tmux set-option -g pane-border-style "bg=${bg},fg=${surface}"
     tmux set-option -g pane-active-border-style "bg=${bg},fg=${surface}"
-    # Panes are not dimmed when unfocused: both styles carry the same colours.
-    # The two border styles above match as well, so the cursor is the only cue
-    # for which pane is active.
+    # Active and inactive panes carry the same colours, borders included, so the
+    # cursor is the only cue for which pane is active.
     tmux set-option -g window-style "fg=${fg_hi},bg=${bg}"
     tmux set-option -g window-active-style "fg=${fg_hi},bg=${bg}"
     tmux set-window-option -g window-status-activity-style bold

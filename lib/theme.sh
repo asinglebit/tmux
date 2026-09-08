@@ -7,11 +7,11 @@
 # assigning light values to $bg -- there is no special casing anywhere else.
 #
 #   bg          status bar and window list background, pane background
-#   bg_dim      reserved; unfocused panes are no longer dimmed
+#   bg_dim      reserved; nothing reads it
 #   surface     plugin background, pane borders
 #   surface_hi  first/last plugin (the end caps) background
 #   muted       inactive window name
-#   dim         reserved; unfocused panes are no longer dimmed
+#   dim         reserved; nothing reads it
 #   fg          status foreground, plugin text
 #   fg_hi       end cap text, pane foreground
 #   accent      prefix-active highlight background (its text uses $bg)

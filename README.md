@@ -3,6 +3,10 @@
 A themed tmux status bar: a row of small widget scripts on each side, a centred
 window list, and thirty-two built-in colour schemes with a `prefix + T` picker.
 
+Based on [tmux2k](https://github.com/2KAbhishek/tmux2k) — my configs started
+there, and the per-widget script layout and `@`-option style of configuration
+still follow it.
+
 ## Install
 
 With [tpm](https://github.com/tmux-plugins/tpm), in `~/.tmux.conf`:
@@ -102,15 +106,19 @@ than by lightness, so a light theme just assigns light values to `bg`.
 
 | Slot | Used for |
 | --- | --- |
-| `bg` | Status bar, window list, and pane border background |
-| `bg_dim` | Inactive pane background |
+| `bg` | Status bar and window list background, pane and pane border background |
+| `bg_dim` | Reserved |
 | `surface` | Widget background, pane border lines |
 | `surface_hi` | First and last widget (the end caps) background |
 | `muted` | Inactive window name |
-| `dim` | Inactive pane foreground |
-| `fg` | Status foreground, widget text |
-| `fg_hi` | End cap text, active pane foreground |
+| `dim` | Reserved |
+| `fg` | Status foreground, widget text, active window name |
+| `fg_hi` | End cap text, pane foreground |
 | `accent` | Prefix-active highlight background (its text uses `bg`) |
+
+`bg_dim` and `dim` are reserved: nothing reads them today. Every theme still
+assigns them, and a new theme should too, so the set stays complete if a use
+turns up.
 
 Drop a file into `~/.config/tmuxbar/themes/<name>.sh` and it appears in the picker
 next to the bundled ones, shadowing a bundled theme of the same name.
