@@ -26,6 +26,7 @@ Requires bash — 3.2 is enough, which is what macOS ships.
 | --- | --- | --- |
 | `@tmuxbar-theme` | `default` | Bundled or user theme name |
 | `@tmuxbar-theme-key` | `T` | `prefix + <key>` opens the picker; `none` disables it |
+| `@tmuxbar-ghostty` | `false` | Sync the theme's background into ghostty; `true` finds its config, or give a path |
 | `@tmuxbar-left-plugins` | `session git cwd` | Widgets, left to right |
 | `@tmuxbar-right-plugins` | `cpu ram battery network time` | Widgets, left to right |
 | `@tmuxbar-refresh-rate` | `60` | Seconds between widget re-runs (`status-interval`) |
@@ -74,6 +75,12 @@ carries on behind a *more...* entry.
 
 Each bundled theme lifts its nine colours from the matching Neovim colourscheme's
 own palette, so an editor and its status bar can be moved between themes by name.
+
+With `@tmuxbar-ghostty` set, a switch also writes the theme's `bg` to ghostty's
+`background`. tmux paints the pane area itself, so what this fixes is the parts
+it does not cover: the sub-cell remainder of the window size, the padding, and a
+window that has not attached yet. Terminals already open are repainted with
+OSC 11, since ghostty reloads its config only from a keybind.
 
 | Family | Themes |
 | --- | --- |
@@ -141,6 +148,7 @@ accent='#81a1c1'
 tmuxbar.tmux        entry point; generates every tmux option the bar needs
 bin/tmuxbar-theme   theme picker: draws the prefix + T menu, applies a pick
 lib/theme.sh        theme resolution and loading
+lib/ghostty.sh      writes the theme background out to ghostty
 lib/utils.sh        helpers shared by the bar and the widgets
 plugins/            one script per widget
 themes/             one file per colour scheme

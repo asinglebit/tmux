@@ -8,6 +8,8 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/theme.sh
 source "$root/lib/theme.sh"
+# shellcheck source=lib/ghostty.sh
+source "$root/lib/ghostty.sh"
 
 usage() {
     echo "usage: tmuxbar-theme {list|current|set <name>|set -|menu [offset]}" >&2
@@ -89,6 +91,13 @@ set)
 
     # tmuxbar.tmux rebuilds every option from scratch, so this is a full reapply.
     "$root/tmuxbar.tmux"
+
+    # That ran in a subprocess, so load the theme again for $bg here. Only the
+    # switch syncs ghostty: doing it in tmuxbar.tmux would rewrite the terminal's
+    # config on every tmux server start, theme change or not.
+    tmuxbar_load_theme
+    tmuxbar_sync_ghostty
+
     tmux display-message "tmuxbar theme: $(tmuxbar_active_theme)"
     ;;
 menu)
