@@ -1,7 +1,7 @@
 # tmuxbar
 
 A themed tmux status bar: a row of small widget scripts on each side, a centred
-window list, and thirty-two built-in colour schemes with a `prefix + T` picker.
+window list, and sixty built-in colour schemes with a `prefix + T` picker.
 
 Based on [tmux2k](https://github.com/2KAbhishek/tmux2k) — my configs started
 there, and the per-widget script layout and `@`-option style of configuration
@@ -84,6 +84,13 @@ one instead.
 
 Each bundled theme lifts its nine colours from the matching Neovim colourscheme's
 own palette, so an editor and its status bar can be moved between themes by name.
+The twenty-eight with no Neovim port of their own come from
+[guitar](https://github.com/asinglebit/guitar)'s palette instead — the same place
+the `guitar-*` colourschemes get theirs — read off its thirty-two slots: `bg` is
+guitar's background, `fg` and `fg_hi` its `text` and `highlighted`, the rest its
+grey ramp, and `accent` the first of its blues that stays legible on that
+background. `ansi` and `monochrome` are the terminal's own sixteen colours,
+because that is what they are in guitar too.
 
 With `@tmuxbar-ghostty` set, a switch also writes the theme's `bg` to ghostty's
 `background`. tmux paints the pane area itself, so what this fixes is the parts
@@ -93,7 +100,8 @@ OSC 11, since ghostty reloads its config only from a keybind.
 
 | Family | Themes |
 | --- | --- |
-| — | `default`, `onedark` |
+| — | `default`, `onedark`, `material`, `palenight`, `zenburn`, `horizon`, `synthwave-84`, `matrix` |
+| Terminal | `ansi`, `monochrome` |
 | Catppuccin | `catppuccin-mocha`, `catppuccin-macchiato`, `catppuccin-frappe`, `catppuccin-latte` (light) |
 | Tokyo Night | `tokyonight-night`, `tokyonight-storm`, `tokyonight-moon`, `tokyonight-day` (light) |
 | Rose Pine | `rose-pine`, `rose-pine-moon`, `rose-pine-dawn` (light) |
@@ -101,9 +109,17 @@ OSC 11, since ghostty reloads its config only from a keybind.
 | Kanagawa | `kanagawa-wave`, `kanagawa-dragon`, `kanagawa-lotus` (light) |
 | Gruvbox | `gruvbox-dark`, `gruvbox-light` (light) |
 | Everforest | `everforest-dark`, `everforest-light` (light) |
-| Dracula | `dracula`, `dracula-soft` |
+| Dracula | `dracula`, `dracula-soft`, `dracula-light` (light) |
 | Oxocarbon | `oxocarbon-dark`, `oxocarbon-light` (light) |
 | Nord | `nord` |
+| Monokai | `monokai-dark`, `monokai-light` (light) |
+| Atom | `atom-dark`, `atom-light` (light) |
+| VS Code | `vscode-dark`, `vscode-light` (light) |
+| Solarized | `solarized-dark`, `solarized-light` (light) |
+| GitHub | `github-dark`, `github-dark-dimmed`, `github-light` (light) |
+| Owl | `night-owl`, `light-owl` (light) |
+| Ayu | `ayu-dark`, `ayu-mirage`, `ayu-light` (light) |
+| Base16 | `base16-tomorrow`, `base16-ocean`, `base16-eighties` |
 
 There is also a CLI, which the key binding and the menu entries call:
 
