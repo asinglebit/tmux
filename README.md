@@ -36,6 +36,7 @@ Requires bash — 3.2 is enough, which is what macOS ships.
 | `@tmuxbar-window-list-alignment` | `absolute-centre` | Passed to `status-justify` |
 | `@tmuxbar-prefix-highlight-color` | theme `accent` | Session segment colour while the prefix is held |
 | `@tmuxbar-workspace-key` | `w` | `prefix + <key>` opens the workspace menu; `none` disables it |
+| `@tmuxbar-menu-border-lines` | `rounded` | Frame around both pickers; any `popup-border-lines` value, e.g. `single` or `none` |
 
 ## Widgets
 
@@ -74,6 +75,12 @@ pick is remembered in `~/.cache/tmuxbar/theme`, so it survives a tmux restart an
 takes precedence over `@tmuxbar-theme` until you choose *reset to config default*.
 tmux silently refuses a menu taller than the window, so the list is cut to fit and
 carries on behind a *more...* entry.
+
+Both pickers -- this one and `prefix + w` -- are tmux menus, so the theme paints
+them too: the pane's own background, a rounded frame and title in `muted`, and
+`surface` under the selected row. `@tmuxbar-menu-border-lines` changes the frame,
+and a tmux older than 3.4, which had no menu styling at all, draws its own plain
+one instead.
 
 Each bundled theme lifts its nine colours from the matching Neovim colourscheme's
 own palette, so an editor and its status bar can be moved between themes by name.
@@ -115,14 +122,14 @@ than by lightness, so a light theme just assigns light values to `bg`.
 
 | Slot | Used for |
 | --- | --- |
-| `bg` | Status bar and window list background, pane and pane border background |
+| `bg` | Status bar and window list background, pane and pane border background, menu background |
 | `bg_dim` | Reserved |
-| `surface` | Widget background, pane border lines |
+| `surface` | Widget background, pane border lines, selected menu row |
 | `surface_hi` | First and last widget (the end caps) background |
-| `muted` | Inactive window name |
+| `muted` | Inactive window name, menu frame and title |
 | `dim` | Reserved |
-| `fg` | Status foreground, widget text, active window name |
-| `fg_hi` | End cap text, pane foreground |
+| `fg` | Status foreground, widget text, active window name, menu text |
+| `fg_hi` | End cap text, pane foreground, selected menu row text |
 | `accent` | Prefix-active highlight background (its text uses `bg`) |
 
 `bg_dim` and `dim` are reserved: nothing reads them today. Every theme still

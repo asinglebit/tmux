@@ -16,6 +16,7 @@ source "$root/lib/atrium.sh"
 refresh_rate=$(get_tmux_option '@tmuxbar-refresh-rate' 60)
 show_powerline=$(get_tmux_option '@tmuxbar-show-powerline' true)
 window_list_alignment=$(get_tmux_option '@tmuxbar-window-list-alignment' 'absolute-centre')
+menu_border_lines=$(get_tmux_option '@tmuxbar-menu-border-lines' 'rounded')
 theme_key=$(get_tmux_option '@tmuxbar-theme-key' 'T')
 workspace_key=$(get_tmux_option '@tmuxbar-workspace-key' 'w')
 
@@ -135,6 +136,24 @@ window_list() {
     tmux set-window-option -g window-status-format "#[bg=${bg}]$(atrium_fg "$muted") #I:#W "
 }
 
+# Both pickers are tmux menus, so painting them is painting every menu the server
+# draws. A menu floats over a pane, so it takes the pane's own background and a
+# rounded frame, the way atrium draws a modal.
+#
+# The title rides in the border and is painted in the border's colour, so that
+# has to be a colour text stays readable in: surface is a pane-border tone, dark
+# enough in some themes that ' theme ' would vanish into the frame it sits in.
+menu_options() {
+    # tmux learned these in 3.4; an older one keeps its own plain menu rather
+    # than answering every apply with four unknown-option errors.
+    tmux show-options -gv menu-border-lines >/dev/null 2>&1 || return 0
+
+    tmux set-option -g menu-style "bg=${bg},fg=${fg}"
+    tmux set-option -g menu-selected-style "bg=${surface},fg=${fg_hi}"
+    tmux set-option -g menu-border-style "bg=${bg},fg=${muted}"
+    tmux set-option -g menu-border-lines "$menu_border_lines"
+}
+
 # The menu itself is built by bin/tmuxbar-theme on open, so the active marker
 # stays accurate, new files in ~/.config/tmuxbar/themes show up without a
 # reload, and the list can be sliced to what the client is tall enough to show.
@@ -155,5 +174,6 @@ set_options
 status_left
 window_list
 status_right
+menu_options
 bind_theme_menu
 bind_workspace_menu
