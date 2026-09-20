@@ -152,10 +152,11 @@ worktrees exist and tmux says which of them have a window, so the two can never
 drift from the machine.
 
 ```
-prefix + w              pick a workspace; a dot marks the ones already up
-bin/workspace list      every worktree, its branch, and up or down
-bin/workspace up PATH   build the window from the project's plan
-bin/workspace down PATH kill it
+prefix + w                pick a workspace; a dot marks the ones already up
+bin/workspace list        every worktree, its branch, and up or down
+bin/workspace up PATH     build the window from the project's own plan
+bin/workspace down PATH   kill it
+bin/workspace save        write this window down as the project's plan
 ```
 
 A window is bound to its worktree by a `@workspace` window option, set when the
@@ -164,33 +165,70 @@ per-session, because grouped sessions share their windows.
 
 ### Plans
 
-`~/.config/tmuxbar/workspaces/<project>.plan` says how to lay a project's
-windows out. Worktrees inherit their main checkout's plan, so `customer-portal`
-and `customer-portal-test` are laid out the same way. With no file, you get
-atrium over a working shell.
+A project says how its own window is laid out, in a `.workspace` file at the
+root of its **main checkout**. tmuxbar holds no layouts and no list of projects.
 
-One line per pane, in creation order:
+It is read from the main checkout rather than the worktree, which is what lets
+`customer-portal-test` inherit `customer-portal`'s layout -- and what lets the
+file be untracked (a personal layout in a shared repo) without any worktree
+losing it. With no file at all you get atrium over a working shell.
 
 ```
-# from split size cwd           delay  command
--     -     -     .             0      a
-1     v     40%   .             gate   pnpm reset && pnpm i
-1     h     50%   packages/api  +15    pnpm watch
+# name    from    split size  cwd             delay  command
+guitar    -       -     -     .               0      g
+types     guitar  h     10%   packages/types  +0     pnpm watch
+nvim      guitar  v     90%   .               0      n
+cli       guitar  h     67%   .               0      -
+reset     cli     h     50%   .               gate   pnpm reset && pnpm i
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `from` | Which pane to split, 1-based in creation order; `-` opens the window |
+| `name` | What `from` refers to. Insert a pane and nothing renumbers |
+| `from` | Which pane to split, **by name**; `-` opens the window |
 | `split` | `h` or `v`; `-` for the window's own pane |
 | `size` | What the **new** pane takes, e.g. `40%`; `-` lets tmux decide |
 | `cwd` | Relative to the worktree root; `.` for its root |
-| `delay` | `0` to run at once, `gate` to be the gate, `+N` for N seconds after the gate opens |
+| `delay` | `0` now, `gate` to be the gate, `+N` for N seconds after it opens |
 | `command` | `-` for a bare shell |
 
-The gate is for a command everything else waits on -- an install, a reset. It
+The cursor lands in **the first pane you left empty** -- the one with no
+command, which is the one you meant to type in.
+
+The gate is for a command everything else waits on: an install, a reset. It
 writes its exit status to a file keyed on the window id, and `+N` panes wait for
 that before counting their offset. A gate that fails still opens it, and the
 panes waiting say so rather than starting into a half-built tree.
+
+### Capturing one
+
+Nobody should work out percentages by hand. Split a window until it looks right,
+then write it down:
+
+```sh
+workspace save          # this window, to its repo's .workspace
+workspace save -f       # overwrite one that is already there
+```
+
+That records tmux's own `#{window_layout}` as a `layout` line, which `up` hands
+straight back to `select-layout`, so the geometry comes back exact to the cell.
+The line carries a checksum and is not one to edit -- rearrange and save again.
+If it stops fitting, because a row was added by hand, tmux refuses it and the
+`split`/`size` columns lay the window out instead. A worse layout, never a
+broken one.
+
+**Commands are a hint, not a capture.** tmux only reports the foreground
+process, so a pane running `pnpm watch` comes back as `node` and one sitting at
+a prompt comes back as a shell. Those rows are written with a note to check
+them. Geometry and directories are exact, which is the part that was tedious.
+
+### A plan is data, not a script
+
+Deliberately. It cannot branch, loop, or compute, and two things were dropped
+rather than grow it into a language: a warning when the window was too small for
+the layout, and a pane rooted outside the worktree. Anything genuinely needing
+logic belongs in a shell function, the way `tds` and `glf` still do -- they open
+six different repos in one window, so no single repo could own them.
 
 ## Agent feedback
 

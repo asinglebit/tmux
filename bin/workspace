@@ -21,10 +21,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/utils.sh
 source "$root/lib/utils.sh"
 
-plans_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxbar/workspaces"
-
 usage() {
-    echo "usage: workspace {list|up <path>|down <path>|menu|created <path>}" >&2
+    echo "usage: workspace {list|up <path>|down <path>|save [-f] [path]|menu|created <path>}" >&2
     exit 1
 }
 
@@ -56,12 +54,15 @@ workspace_window() {
         awk -F'|' -v want="$1" '$2 == want { print $1; exit }'
 }
 
-# The main checkout a worktree belongs to, which is what names its plan.
-workspace_project() {
+# The main checkout a worktree belongs to. The first entry `worktree list`
+# prints is always the main one, and it is where .workspace is looked for --
+# never in the worktree, so a file that is untracked still reaches every
+# worktree of the repo.
+workspace_main() {
     local main
     main=$(git -C "$1" worktree list --porcelain 2>/dev/null | awk '/^worktree /{ print substr($0, 10); exit }')
     [ -n "$main" ] || return 1
-    echo "${main##*/}"
+    printf '%s\n' "$main"
 }
 
 # state<TAB>path<TAB>branch<TAB>project, one line per worktree, deduplicated:
@@ -71,7 +72,8 @@ workspace_list() {
 
     while IFS= read -r repo; do
         [ -n "$repo" ] || continue
-        project=$(workspace_project "$repo") || continue
+        project=$(workspace_main "$repo") || continue
+        project=${project##*/}
 
         path=''
         while IFS= read -r line; do
@@ -104,33 +106,46 @@ workspace_list() {
 
 # --- building a window ------------------------------------------------------
 
-# The project's plan, or the built-in one. A plan is one line per pane:
+# The repository's own plan, or the built-in one.
 #
-#   from  split  size  cwd  delay  command
+# It lives in the MAIN checkout rather than the worktree, so a worktree
+# inherits its project's layout and the file can be untracked without any
+# worktree losing it.
 #
-# from   which pane to split, 1-based in creation order; - opens the window
+# A plan is an optional `layout` line plus one line per pane:
+#
+#   name  from  split  size  cwd  delay  command
+#
+# name   what `from` refers to; never renumbers when a pane is inserted
+# from   which pane to split, by name; - opens the window
 # split  h or v; - for the window's own pane
 # size   what the new pane takes, e.g. 40%; - lets tmux decide
 # cwd    relative to the worktree root
 # delay  0 to run at once, gate to be the gate, +N for N seconds after it opens
 # cmd    - for a bare shell
 workspace_plan() {
-    local plan="$plans_dir/$1.plan"
-    if [ -r "$plan" ]; then
+    local main plan
+    main=$(workspace_main "$1") && plan="$main/.workspace"
+    if [ -n "${plan:-}" ] && [ -r "$plan" ]; then
         cat "$plan"
         return
     fi
     # Enough to work in: atrium above, somewhere to type below.
     printf '%s\n' \
-        '-  -  -    .  0  a' \
-        '1  v  40%  .  0  -'
+        'atrium  -       -     -    .  0  a' \
+        'work    atrium  v     40%  .  0  -'
+}
+
+# tmux's own layout string, when the plan carries one.
+workspace_layout_of() {
+    workspace_plan "$1" | awk '$1 == "layout" { print $2; exit }'
 }
 
 workspace_up() {
-    local path project win panes='' gate
-    path=$(workspace_abs "$1")
-    local from split size cwd delay cmd target pane n=0
+    local path win panes='' gate layout focus=''
+    local name from split size cwd delay cmd target pane
 
+    path=$(workspace_abs "$1")
     [ -d "$path" ] || {
         echo "workspace: no such directory: $path" >&2
         return 1
@@ -139,13 +154,12 @@ workspace_up() {
         echo "workspace: already up: $path" >&2
         return 0
     fi
-    project=$(workspace_project "$path") || project=${path##*/}
 
-    while read -r from split size cwd delay cmd; do
-        case "$from" in '' | '#'*) continue ;; esac
+    while read -r name from split size cwd delay cmd; do
+        case "$name" in '' | '#'* | layout) continue ;; esac
         [ "$cwd" = '.' ] && cwd=''
 
-        if [ "$split" = '-' ]; then
+        if [ "$from" = '-' ]; then
             win=$(tmux new-window -P -F '#{window_id}' -n "${path##*/}" -c "$path${cwd:+/$cwd}")
             [ -n "$win" ] || return 1
             # Bound to the worktree here, which is the whole of how tmux knows
@@ -155,31 +169,42 @@ workspace_up() {
             rm -f "$gate"
             pane=$(tmux list-panes -t "$win" -F '#{pane_id}' | head -n1)
         else
-            # -t wants a pane id; a @window id would report another window.
-            target=$(echo "$panes" | awk -v i="$from" 'NR == i { print; exit }')
+            # By name rather than by position, so inserting a pane renumbers
+            # nothing. 3.2 has no associative arrays, hence the awk.
+            target=$(printf '%s\n' "$panes" | awk -v want="$from" '$1 == want { print $2; exit }')
             [ -n "$target" ] || {
-                echo "workspace: plan line ${from} refers to a pane that is not there" >&2
+                echo "workspace: pane '$name' splits from '$from', which is not there" >&2
                 continue
             }
             local size_arg=''
-            [ "$size" != '-' ] && size_arg="-l $size"
+            [ "$size" != '-' ] && [ "$size" != '' ] && size_arg="-l $size"
             # shellcheck disable=SC2086
             pane=$(tmux split-window -P -F '#{pane_id}' "-$split" $size_arg -t "$target" -c "$path${cwd:+/$cwd}")
             # tmux refuses to split a pane already too small, and the empty id
             # would send the next command into whatever pane is active.
             [ -n "$pane" ] || {
-                echo "workspace: no room for pane $((n + 1))" >&2
+                echo "workspace: no room for pane '$name'" >&2
                 continue
             }
         fi
 
-        n=$((n + 1))
-        panes="${panes}${pane}
+        panes="${panes}${name} ${pane}
 "
+        # The first pane you left empty is the one you meant to type in.
+        [ "$cmd" = '-' ] && [ -z "$focus" ] && focus=$pane
         workspace_send "$pane" "$delay" "$cmd" "$gate"
-    done < <(workspace_plan "$project")
+    done < <(workspace_plan "$path")
 
-    tmux select-pane -t "$(echo "$panes" | head -n1)"
+    [ -n "${win:-}" ] || return 1
+
+    # Exact geometry, when the plan was captured rather than written. A stale
+    # line -- a row added since -- makes tmux refuse it, and the sizes the rows
+    # asked for stand instead. That is a worse layout, never a broken one.
+    layout=$(workspace_layout_of "$path")
+    [ -n "$layout" ] && tmux select-layout -t "$win" "$layout" 2>/dev/null
+
+    [ -n "$focus" ] || focus=$(printf '%s\n' "$panes" | awk 'NR == 1 { print $2 }')
+    [ -n "$focus" ] && tmux select-pane -t "$focus"
 }
 
 # One pane's command, at the time the plan asked for.
@@ -234,6 +259,95 @@ workspace_down() {
         return 1
     }
     tmux kill-window -t "$win"
+}
+
+# --- capturing a layout -----------------------------------------------------
+
+# Arrange a window by hand, then write it down.
+#
+# tmux's own layout string is what makes this exact, so no percentage is ever
+# worked out -- here or by you. What it cannot give back is the command: tmux
+# reports the foreground process, so a pane running `pnpm watch` reports node.
+# Those are written with a note to check them.
+workspace_save() {
+    local force=0 path win main out layout pcmd pcwd rel cmd note name prev='' used=' ' n=0
+
+    [ "${1:-}" = -f ] && {
+        force=1
+        shift
+    }
+
+    if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
+        path=$(workspace_abs "$1")
+        win=$(workspace_window "$path")
+    else
+        win=$(tmux display-message -p '#{window_id}')
+        path=$(tmux show-options -w -qv -t "$win" @workspace)
+        # A window nobody bound: fall back to what the pane is standing in.
+        [ -n "$path" ] || path=$(workspace_abs "$(tmux display-message -p '#{pane_current_path}')")
+    fi
+
+    [ -n "$win" ] || {
+        echo "workspace: no window to save" >&2
+        return 1
+    }
+    main=$(workspace_main "$path") || {
+        echo "workspace: $path is not inside a git repository" >&2
+        return 1
+    }
+    out="$main/.workspace"
+
+    if [ -e "$out" ] && [ "$force" -eq 0 ]; then
+        echo "workspace: $out exists already; pass -f to overwrite it" >&2
+        return 1
+    fi
+
+    layout=$(tmux display-message -p -t "$win" '#{window_layout}')
+
+    {
+        echo "# Written by \`workspace save\`."
+        echo "#"
+        echo "# The layout line is tmux's own and carries a checksum, so it is not one"
+        echo "# to edit by hand -- rearrange the window and save again. The split and"
+        echo "# size columns below are only a fallback for when it no longer fits."
+        echo "layout $layout"
+        echo
+        echo "# name      from      split size  cwd                delay  command"
+
+        while IFS='|' read -r pcmd pcwd; do
+            n=$((n + 1))
+
+            rel=${pcwd#"$path"}
+            rel=${rel#/}
+            [ -n "$rel" ] || rel=.
+
+            case "$pcmd" in
+            bash | sh | zsh | fish | dash | ksh)
+                cmd='-' note=''
+                name="pane$n"
+                ;;
+            *)
+                cmd=$pcmd
+                note='   # check: this is the process, not what you typed'
+                name=$pcmd
+                ;;
+            esac
+            # Two panes running the same thing would otherwise share a name.
+            case "$used" in *" $name "*) name="pane$n" ;; esac
+            used="$used$name "
+
+            # The first pane opens the window; the rest chain off the one
+            # before, which is a valid window even if the layout is refused.
+            if [ "$n" -eq 1 ]; then
+                printf '%-11s %-9s %-5s %-5s %-18s %-6s %s%s\n' "$name" '-' '-' '-' "$rel" '0' "$cmd" "$note"
+            else
+                printf '%-11s %-9s %-5s %-5s %-18s %-6s %s%s\n' "$name" "$prev" 'v' '-' "$rel" '0' "$cmd" "$note"
+            fi
+            prev=$name
+        done < <(tmux list-panes -t "$win" -F '#{pane_current_command}|#{pane_current_path}')
+    } >"$out"
+
+    echo "wrote $out ($n panes)"
 }
 
 # --- the menu ---------------------------------------------------------------
@@ -309,6 +423,10 @@ up)
 down)
     need_path "$@"
     workspace_down "$2"
+    ;;
+save)
+    shift
+    workspace_save "$@"
     ;;
 switch)
     need_path "$@"
