@@ -267,17 +267,44 @@ atrium writes what it needs onto the pane it draws in:
 | --- | --- | --- |
 | `@atrium_status` | pane | `idle`, `working`, `needs-input` or `error` |
 | `@atrium_agents` | pane | `<held> <working> <needs> <error>` |
+| `@atrium_blink` | server | `0` on the dark half of the pulse; lit on anything else, unset included |
 
 The window list colours each window by the worst thing the atriums **in that
 window** need. That rollup is a format string -- `#{P:#{@atrium_status}}` walks
 the window's own panes as tmux paints -- so there is no daemon, nothing polls,
 and a window with no atrium in it keeps its usual colour.
 
+| Status | Window name | Palette key | Means |
+| --- | --- | --- | --- |
+| `needs-input` | blue, pulsing | `blue` | An agent is waiting on you |
+| `working` | orange, pulsing | `orange` | It is waiting on the model |
+| `idle` | green | `green` | It has finished and wants nothing |
+| `error` | red | `red` | It failed |
+
+Only the two that are still waiting pulse, so the bar moves where something is
+going on and sits still where it is not. The `atrium` widget's cell takes the
+same colours but holds them steady: its output is cached until the next
+`status-interval`, so whichever half of the beat it printed is the half it would
+wear for the next minute.
+
+**The pulse is drawn, not asked for.** `#[blink]` is the obvious way to write
+this and it does not work: it emits SGR 5, which ghostty parses and ignores.
+Nor can the bar keep its own time -- tmux repaints the status line only when
+something asks it to. So atrium keeps the beat, because it is the thing already
+running and already knows an agent is waiting: while one is, it writes
+`@atrium_blink` and asks for a repaint twice a second, and the window drops to
+the theme's `muted` on the dark half. Nothing waiting, nothing ticking.
+
+A window whose beat has stopped -- no atrium running, one killed before it could
+stop cleanly -- holds the **lit** colour. The format dims on an explicit `0` and
+lights on everything else, so the worst a missing beat can do is stop the
+movement, never leave a window greyed out.
+
 Colours come from `~/.config/atrium/theme.json`, falling back to guitar's, which
 is the same one-way fallback atrium itself does: retheme atrium and the bar
 follows, and the three tools can never disagree about what red is. With neither
-installed the theme's own `accent` stands in, which cannot tell an error from a
-question -- the nine slots have no red and no green.
+installed the theme's own `accent` stands in for both red and blue -- the nine
+slots have neither -- and the pulse is all that tells a question from a failure.
 
 Because atrium pushes a repaint when it publishes, feedback does not wait for
 `@tmuxbar-refresh-rate`.

@@ -116,18 +116,42 @@ status_right() {
     done
 }
 
-# A window is coloured by the worst thing the atriums in it need.
+# One status as the window wears it. A settled status is one colour; a pulsing
+# one is two, chosen by the beat atrium is keeping in `@atrium_blink`.
+#
+# The test is for an explicit `0` rather than for truth, so everything else --
+# `1`, and an option never set at all because no atrium is running or one was
+# killed before it could stop the beat -- leaves the window lit. A window that
+# has stopped pulsing still says blue; one stuck on the dark half would just
+# look broken.
+atrium_style() {
+    local status=$1
+    if tmuxbar_atrium_pulses "$status"; then
+        printf '#{?#{==:#{@atrium_blink},0},#[fg=%s],#[%s]}' "$status_dark" "$(tmuxbar_atrium_style "$status")"
+    else
+        printf '#[%s]' "$(tmuxbar_atrium_style "$status")"
+    fi
+}
+
+# A window is coloured by the worst thing the atriums in it need, and pulses
+# while that thing is still waiting.
 #
 # `#{P:...}` walks the panes of the window being drawn and reads the option each
 # atrium writes onto its own pane, so the whole rollup is a format string that
 # tmux evaluates as it paints. Nothing polls, nothing aggregates, and a window
 # with no atrium in it matches none of the patterns and keeps its usual colour.
+#
+# The patterns are tried worst first, so a window holding one agent that failed
+# and one that finished says the failure. `idle` is matched rather than left to
+# the fallback, because a finished agent is something to say -- green -- and not
+# merely the absence of anything to say.
 atrium_fg() {
     local fallback=$1 rollup='#{P:#{@atrium_status}}'
-    printf '#{?#{m:*error*,%s},#[fg=%s],#{?#{m:*needs-input*,%s},#[fg=%s],#{?#{m:*working*,%s},#[fg=%s],#[fg=%s]}}}' \
-        "$rollup" "$status_error" \
-        "$rollup" "$status_needs" \
-        "$rollup" "$status_working" \
+    printf '#{?#{m:*error*,%s},%s,#{?#{m:*needs-input*,%s},%s,#{?#{m:*working*,%s},%s,#{?#{m:*idle*,%s},%s,#[fg=%s]}}}}' \
+        "$rollup" "$(atrium_style error)" \
+        "$rollup" "$(atrium_style needs-input)" \
+        "$rollup" "$(atrium_style working)" \
+        "$rollup" "$(atrium_style idle)" \
         "$fallback"
 }
 

@@ -38,7 +38,7 @@ worse_of() {
 }
 
 main() {
-    local line status agents worst='' held=0 working=0 needs=0 error=0 colour out
+    local line status agents worst='' held=0 working=0 needs=0 error=0 style out
 
     tmuxbar_load_theme
     tmuxbar_load_atrium_colors
@@ -61,19 +61,18 @@ main() {
         return
     fi
 
-    case "$worst" in
-    error) colour=$status_error ;;
-    needs-input) colour=$status_needs ;;
-    working) colour=$status_working ;;
-    *) colour=$status_idle ;;
-    esac
+    # The same colour the window list paints this status, so the cell and the
+    # windows it summarises always agree. It does not pulse with them: this
+    # output is cached until the next status-interval, so whatever half of the
+    # beat it printed would be the half it wore for the next minute.
+    style=$(tmuxbar_atrium_style "$worst")
 
     out="${held_icon:+$held_icon }$held"
     [ "$needs" -gt 0 ] && out="$out  $needs_icon$needs"
     [ "$error" -gt 0 ] && out="$out  $error_icon$error"
 
-    # A widget's output is not stripped of styles, so the cell colours itself.
-    printf '#[fg=%s]%s\n' "$colour" "$out"
+    # A widget's output is not stripped of styles, so the cell styles itself.
+    printf '#[%s]%s\n' "$style" "$out"
 }
 
 main
