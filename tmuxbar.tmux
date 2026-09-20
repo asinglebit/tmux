@@ -10,11 +10,14 @@
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/theme.sh
 source "$root/lib/theme.sh" # pulls in lib/utils.sh
+# shellcheck source=lib/atrium.sh
+source "$root/lib/atrium.sh"
 
 refresh_rate=$(get_tmux_option '@tmuxbar-refresh-rate' 60)
 show_powerline=$(get_tmux_option '@tmuxbar-show-powerline' true)
 window_list_alignment=$(get_tmux_option '@tmuxbar-window-list-alignment' 'absolute-centre')
 theme_key=$(get_tmux_option '@tmuxbar-theme-key' 'T')
+workspace_key=$(get_tmux_option '@tmuxbar-workspace-key' 'w')
 
 # Powerline end caps, U+E0B0 and U+E0B2, spelled as UTF-8 bytes: bash 3.2 has
 # no $'\uXXXX', and raw glyphs here would be invisible in most editors.
@@ -26,6 +29,7 @@ IFS=' ' read -r -a right_plugins <<<"$(get_tmux_option '@tmuxbar-right-plugins' 
 
 apply_theme() {
     tmuxbar_load_theme
+    tmuxbar_load_atrium_colors
     prefix_highlight=$(get_tmux_option '@tmuxbar-prefix-highlight-color' "$accent")
 }
 
@@ -111,9 +115,24 @@ status_right() {
     done
 }
 
+# A window is coloured by the worst thing the atriums in it need.
+#
+# `#{P:...}` walks the panes of the window being drawn and reads the option each
+# atrium writes onto its own pane, so the whole rollup is a format string that
+# tmux evaluates as it paints. Nothing polls, nothing aggregates, and a window
+# with no atrium in it matches none of the patterns and keeps its usual colour.
+atrium_fg() {
+    local fallback=$1 rollup='#{P:#{@atrium_status}}'
+    printf '#{?#{m:*error*,%s},#[fg=%s],#{?#{m:*needs-input*,%s},#[fg=%s],#{?#{m:*working*,%s},#[fg=%s],#[fg=%s]}}}' \
+        "$rollup" "$status_error" \
+        "$rollup" "$status_needs" \
+        "$rollup" "$status_working" \
+        "$fallback"
+}
+
 window_list() {
-    tmux set-window-option -g window-status-current-format "#[fg=${fg},bg=${bg}] #I:#W "
-    tmux set-window-option -g window-status-format "#[fg=${muted},bg=${bg}] #I:#W "
+    tmux set-window-option -g window-status-current-format "#[bg=${bg}]$(atrium_fg "$fg") #I:#W "
+    tmux set-window-option -g window-status-format "#[bg=${bg}]$(atrium_fg "$muted") #I:#W "
 }
 
 # The menu itself is built by bin/tmuxbar-theme on open, so the active marker
@@ -124,9 +143,17 @@ bind_theme_menu() {
     tmux bind-key "$theme_key" run-shell "$root/bin/tmuxbar-theme menu"
 }
 
+# The menu is built on open for the same reason the theme menu is: whether a
+# workspace has a window is only knowable then.
+bind_workspace_menu() {
+    [ "$workspace_key" = none ] && return 0
+    tmux bind-key "$workspace_key" run-shell "$root/bin/workspace menu"
+}
+
 apply_theme
 set_options
 status_left
 window_list
 status_right
 bind_theme_menu
+bind_workspace_menu

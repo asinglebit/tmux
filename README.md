@@ -35,6 +35,7 @@ Requires bash — 3.2 is enough, which is what macOS ships.
 | `@tmuxbar-right-sep` | `` | Right-side separator glyph |
 | `@tmuxbar-window-list-alignment` | `absolute-centre` | Passed to `status-justify` |
 | `@tmuxbar-prefix-highlight-color` | theme `accent` | Session segment colour while the prefix is held |
+| `@tmuxbar-workspace-key` | `w` | `prefix + <key>` opens the workspace menu; `none` disables it |
 
 ## Widgets
 
@@ -52,6 +53,7 @@ that prints one line; tmux re-runs it every `@tmuxbar-refresh-rate` seconds.
 | `battery` | Level glyph and percentage | `-battery-charging-icon`, `-battery-low-icon`, `-battery-percentage-0`…`-4` |
 | `network` | SSID, `Eth`, or `Offline` | `-network-{ethernet,wifi,offline}-icon` |
 | `uptime` | Days / hours / minutes | `-uptime-icon` |
+| `atrium` | Agents held across the server, and how many want you | `-atrium-icon`, `-atrium-{needs,error}-icon`, `-atrium-none-text` (`-`) |
 
 All option names take the `@tmuxbar-` prefix, e.g. `set -g @tmuxbar-cpu-icon ''`.
 
@@ -141,6 +143,91 @@ fg='#abb1bb'
 fg_hi='#cdcecf'
 accent='#81a1c1'
 ```
+
+## Workspaces
+
+A **workspace** is a git worktree, the tmux window laid out for it, and whatever
+is running in that window's panes. Nothing here keeps a list: git says which
+worktrees exist and tmux says which of them have a window, so the two can never
+drift from the machine.
+
+```
+prefix + w              pick a workspace; a dot marks the ones already up
+bin/workspace list      every worktree, its branch, and up or down
+bin/workspace up PATH   build the window from the project's plan
+bin/workspace down PATH kill it
+```
+
+A window is bound to its worktree by a `@workspace` window option, set when the
+window is built. Lookups are server-wide (`list-windows -a`) rather than
+per-session, because grouped sessions share their windows.
+
+### Plans
+
+`~/.config/tmuxbar/workspaces/<project>.plan` says how to lay a project's
+windows out. Worktrees inherit their main checkout's plan, so `customer-portal`
+and `customer-portal-test` are laid out the same way. With no file, you get
+atrium over a working shell.
+
+One line per pane, in creation order:
+
+```
+# from split size cwd           delay  command
+-     -     -     .             0      a
+1     v     40%   .             gate   pnpm reset && pnpm i
+1     h     50%   packages/api  +15    pnpm watch
+```
+
+| Field | Meaning |
+| --- | --- |
+| `from` | Which pane to split, 1-based in creation order; `-` opens the window |
+| `split` | `h` or `v`; `-` for the window's own pane |
+| `size` | What the **new** pane takes, e.g. `40%`; `-` lets tmux decide |
+| `cwd` | Relative to the worktree root; `.` for its root |
+| `delay` | `0` to run at once, `gate` to be the gate, `+N` for N seconds after the gate opens |
+| `command` | `-` for a bare shell |
+
+The gate is for a command everything else waits on -- an install, a reset. It
+writes its exit status to a file keyed on the window id, and `+N` panes wait for
+that before counting their offset. A gate that fails still opens it, and the
+panes waiting say so rather than starting into a half-built tree.
+
+## Agent feedback
+
+atrium writes what it needs onto the pane it draws in:
+
+| Option | Scope | Value |
+| --- | --- | --- |
+| `@atrium_status` | pane | `idle`, `working`, `needs-input` or `error` |
+| `@atrium_agents` | pane | `<held> <working> <needs> <error>` |
+
+The window list colours each window by the worst thing the atriums **in that
+window** need. That rollup is a format string -- `#{P:#{@atrium_status}}` walks
+the window's own panes as tmux paints -- so there is no daemon, nothing polls,
+and a window with no atrium in it keeps its usual colour.
+
+Colours come from `~/.config/atrium/theme.json`, falling back to guitar's, which
+is the same one-way fallback atrium itself does: retheme atrium and the bar
+follows, and the three tools can never disagree about what red is. With neither
+installed the theme's own `accent` stands in, which cannot tell an error from a
+question -- the nine slots have no red and no green.
+
+Because atrium pushes a repaint when it publishes, feedback does not wait for
+`@tmuxbar-refresh-rate`.
+
+### Telling tmux about a new worktree
+
+`WORKTREE_HOOK` names one executable, which atrium and guitar both run as
+`$WORKTREE_HOOK created <path>` whenever they make a worktree. Point it at
+`bin/workspace`, whose `created` verb stamps `@workspaces_dirty`, says so once,
+and asks for a repaint.
+
+```sh
+export WORKTREE_HOOK="$HOME/.config/tmux/plugins/tmux/bin/workspace"
+```
+
+Nothing is lost with it unset: atrium notices a worktree it did not make within
+three seconds, and the menu asks git directly every time it opens.
 
 ## Layout
 

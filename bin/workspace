@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+#
+# workspace -- the tmux side of a git worktree.
+#
+# A workspace is a worktree, the window laid out for it, and whatever is running
+# in that window's panes. Nothing here owns the list: git says which worktrees
+# exist and tmux says which of them have a window, so this can never drift from
+# what is actually on the machine.
+#
+#   workspace list              every worktree, and whether its window is up
+#   workspace up <path>         build the window from the project's plan
+#   workspace down <path>       kill it
+#   workspace menu              pick one; up ones are switched to, down ones built
+#   workspace created <path>    what WORKTREE_HOOK points at
+#
+# bash 3.2, like the rest of tmuxbar: no associative arrays, no mapfile.
+
+set -uo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/utils.sh
+source "$root/lib/utils.sh"
+
+plans_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxbar/workspaces"
+
+usage() {
+    echo "usage: workspace {list|up <path>|down <path>|menu|created <path>}" >&2
+    exit 1
+}
+
+# --- finding worktrees ------------------------------------------------------
+
+# Every git checkout under the projects root. Matches atrium's own scan: three
+# levels deep, and the build directories are never worth descending into.
+workspace_repos() {
+    local projects="${ATRIUM_PROJECTS:-$HOME/projects}"
+    [ -d "$projects" ] || return 0
+    find "$projects" -maxdepth 3 \
+        \( -name node_modules -o -name target -o -name .cargo -o -name .venv -o -name vendor \) -prune -o \
+        -name .git -print 2>/dev/null |
+        sed 's|/\.git$||'
+}
+
+# The window showing this worktree, or nothing. Server-wide on purpose: the
+# sessions here are grouped, so a window belongs to the server rather than to
+# whichever session is attached.
+workspace_window() {
+    tmux list-windows -a -F '#{window_id}|#{@workspace}' 2>/dev/null |
+        awk -F'|' -v want="$1" '$2 == want { print $1; exit }'
+}
+
+# The main checkout a worktree belongs to, which is what names its plan.
+workspace_project() {
+    local main
+    main=$(git -C "$1" worktree list --porcelain 2>/dev/null | awk '/^worktree /{ print substr($0, 10); exit }')
+    [ -n "$main" ] || return 1
+    echo "${main##*/}"
+}
+
+# state<TAB>path<TAB>branch<TAB>project, one line per worktree, deduplicated:
+# every worktree of a repo reports the same set, so each is seen many times.
+workspace_list() {
+    local repo path branch project state seen='' line
+
+    while IFS= read -r repo; do
+        [ -n "$repo" ] || continue
+        project=$(workspace_project "$repo") || continue
+
+        path=''
+        while IFS= read -r line; do
+            case "$line" in
+            'worktree '*) path=${line#worktree } ;;
+            'branch refs/heads/'*)
+                branch=${line#branch refs/heads/}
+                ;;
+            '')
+                [ -n "$path" ] || continue
+                # 3.2 has no associative arrays, so the seen set is a string.
+                case "$seen" in
+                *"|$path|"*) ;;
+                *)
+                    seen="$seen|$path|"
+                    state=down
+                    [ -n "$(workspace_window "$path")" ] && state=up
+                    printf '%s\t%s\t%s\t%s\n' "$state" "$path" "${branch:-detached}" "$project"
+                    ;;
+                esac
+                path='' branch=''
+                ;;
+            esac
+        done < <(
+            git -C "$repo" worktree list --porcelain 2>/dev/null
+            echo
+        )
+    done < <(workspace_repos) | sort -t"$(printf '\t')" -k4,4 -k2,2
+}
+
+# --- building a window ------------------------------------------------------
+
+# The project's plan, or the built-in one. A plan is one line per pane:
+#
+#   from  split  size  cwd  delay  command
+#
+# from   which pane to split, 1-based in creation order; - opens the window
+# split  h or v; - for the window's own pane
+# size   what the new pane takes, e.g. 40%; - lets tmux decide
+# cwd    relative to the worktree root
+# delay  0 to run at once, gate to be the gate, +N for N seconds after it opens
+# cmd    - for a bare shell
+workspace_plan() {
+    local plan="$plans_dir/$1.plan"
+    if [ -r "$plan" ]; then
+        cat "$plan"
+        return
+    fi
+    # Enough to work in: atrium above, somewhere to type below.
+    printf '%s\n' \
+        '-  -  -    .  0  a' \
+        '1  v  40%  .  0  -'
+}
+
+workspace_up() {
+    local path=$1 project win panes='' gate
+    local from split size cwd delay cmd target pane n=0
+
+    [ -d "$path" ] || {
+        echo "workspace: no such directory: $path" >&2
+        return 1
+    }
+    if [ -n "$(workspace_window "$path")" ]; then
+        echo "workspace: already up: $path" >&2
+        return 0
+    fi
+    project=$(workspace_project "$path") || project=${path##*/}
+
+    while read -r from split size cwd delay cmd; do
+        case "$from" in '' | '#'*) continue ;; esac
+        [ "$cwd" = '.' ] && cwd=''
+
+        if [ "$split" = '-' ]; then
+            win=$(tmux new-window -P -F '#{window_id}' -n "${path##*/}" -c "$path${cwd:+/$cwd}")
+            [ -n "$win" ] || return 1
+            # Bound to the worktree here, which is the whole of how tmux knows
+            # which window belongs to which workspace.
+            tmux set-option -w -t "$win" @workspace "$path"
+            gate="${TMPDIR:-/tmp}/workspace-gate-${win#@}"
+            rm -f "$gate"
+            pane=$(tmux list-panes -t "$win" -F '#{pane_id}' | head -n1)
+        else
+            # -t wants a pane id; a @window id would report another window.
+            target=$(echo "$panes" | awk -v i="$from" 'NR == i { print; exit }')
+            [ -n "$target" ] || {
+                echo "workspace: plan line ${from} refers to a pane that is not there" >&2
+                continue
+            }
+            local size_arg=''
+            [ "$size" != '-' ] && size_arg="-l $size"
+            # shellcheck disable=SC2086
+            pane=$(tmux split-window -P -F '#{pane_id}' "-$split" $size_arg -t "$target" -c "$path${cwd:+/$cwd}")
+            # tmux refuses to split a pane already too small, and the empty id
+            # would send the next command into whatever pane is active.
+            [ -n "$pane" ] || {
+                echo "workspace: no room for pane $((n + 1))" >&2
+                continue
+            }
+        fi
+
+        n=$((n + 1))
+        panes="${panes}${pane}
+"
+        workspace_send "$pane" "$delay" "$cmd" "$gate"
+    done < <(workspace_plan "$project")
+
+    tmux select-pane -t "$(echo "$panes" | head -n1)"
+}
+
+# One pane's command, at the time the plan asked for.
+workspace_send() {
+    local pane=$1 delay=$2 cmd=$3 gate=$4
+
+    [ "$cmd" = '-' ] && return 0
+    # The panes need a shell to type into.
+    sleep 0.2
+
+    case "$delay" in
+    gate)
+        # `;` rather than `&&`, so the gate still opens when the command fails
+        # and the panes waiting on it are told rather than left hanging.
+        tmux send-keys -t "$pane" "$cmd; echo \$? > '$gate'" C-m
+        ;;
+    +*)
+        workspace_after_gate "$pane" "${delay#+}" "$cmd" "$gate" &
+        ;;
+    *)
+        tmux send-keys -t "$pane" "$cmd" C-m
+        ;;
+    esac
+}
+
+# Wait for the gate, then run. Offsets are measured from the gate opening, not
+# from when the window was built.
+workspace_after_gate() {
+    local pane=$1 offset=$2 cmd=$3 gate=$4 waited=0 rc
+
+    while [ ! -f "$gate" ] && [ "$waited" -lt 1800 ]; do
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    rc=timeout
+    [ -f "$gate" ] && rc=$(cat "$gate")
+    if [ "$rc" != 0 ]; then
+        tmux send-keys -t "$pane" "echo 'workspace: the gate did not succeed ($rc) -- not starting'" C-m
+        return 0
+    fi
+
+    sleep "$offset"
+    tmux send-keys -t "$pane" "$cmd" C-m
+}
+
+workspace_down() {
+    local win
+    win=$(workspace_window "$1")
+    [ -n "$win" ] || {
+        echo "workspace: no window for $1" >&2
+        return 1
+    }
+    tmux kill-window -t "$win"
+}
+
+# --- the menu ---------------------------------------------------------------
+
+# One hotkey per entry, in the order tmuxbar's theme picker uses them.
+menu_keys='123456789abcdefgijklmnopqrsuvwxyz'
+
+workspace_menu() {
+    local state path branch project menu=() i=0 label mark
+
+    while IFS="$(printf '\t')" read -r state path branch project; do
+        [ -n "$path" ] || continue
+        [ "$i" -ge ${#menu_keys} ] && break
+        # A marker rather than a colour: display-menu has no styling per entry.
+        mark='  '
+        [ "$state" = up ] && mark=' ●'
+        label="${path##*/}$mark  ${branch}"
+        if [ "$state" = up ]; then
+            menu+=("$label" "${menu_keys:$i:1}" "run-shell '$root/bin/workspace switch \"$path\"'")
+        else
+            menu+=("$label" "${menu_keys:$i:1}" "run-shell '$root/bin/workspace up \"$path\"'")
+        fi
+        i=$((i + 1))
+    done < <(workspace_list)
+
+    if [ "$i" -eq 0 ]; then
+        tmux display-message 'workspace: no worktrees found'
+        return 0
+    fi
+
+    menu+=('')
+    menu+=('close this workspace' '0' "run-shell '$root/bin/workspace down \"#{@workspace}\"'")
+
+    tmux display-menu -T ' workspaces ' -x C -y C "${menu[@]}"
+}
+
+workspace_switch() {
+    local win
+    win=$(workspace_window "$1")
+    [ -n "$win" ] || return 1
+    tmux select-window -t "$win"
+}
+
+# --- the hook ---------------------------------------------------------------
+
+# What WORKTREE_HOOK points at. atrium and guitar both run this, with the event
+# and the path, whenever they make a worktree.
+workspace_created() {
+    local path=$1
+    # Not under tmux: nothing to tell, and that is fine.
+    [ -n "${TMUX:-}" ] || return 0
+
+    tmux set-option -g @workspaces_dirty "$(date +%s)"
+    tmux display-message "workspace ${path##*/} ready -- prefix+w"
+    # Without this the bar waits for status-interval, which is a minute under a
+    # default tmuxbar.
+    tmux refresh-client -S
+}
+
+need_path() {
+    [ $# -ge 2 ] || usage
+}
+
+case "${1:-}" in
+list)
+    workspace_list
+    ;;
+up)
+    need_path "$@"
+    workspace_up "$2"
+    ;;
+down)
+    need_path "$@"
+    workspace_down "$2"
+    ;;
+switch)
+    need_path "$@"
+    workspace_switch "$2"
+    ;;
+menu)
+    workspace_menu
+    ;;
+created)
+    need_path "$@"
+    workspace_created "$2"
+    ;;
+*)
+    usage
+    ;;
+esac
