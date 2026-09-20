@@ -25,7 +25,7 @@ source "$root/lib/utils.sh"
 workspace_config="${XDG_CONFIG_HOME:-$HOME/.config}/workspace"
 
 usage() {
-    echo "usage: workspace {list|up <path>|down <path>|save [-f] [-g] [path]|menu|created <path>}" >&2
+    echo "usage: workspace {list|up <path>|down <path>|save [-f] [-g|-d] [path]|menu|created <path>}" >&2
     exit 1
 }
 
@@ -111,30 +111,41 @@ workspace_list() {
 
 # Where this worktree's layout is written down, if anywhere.
 #
-# Two tiers, most specific first:
+# Three tiers, most specific first:
 #
-#   1. <main checkout>/.workspace           the repository's own
-#   2. ~/.config/workspace/<project>.workspace
+#   1. <main checkout>/.workspace              the repository's own
+#   2. ~/.config/workspace/<project>.workspace kept for it, centrally
+#   3. ~/.config/workspace/default.workspace   whatever you want by default
 #
 # Tier 1 is read from the MAIN checkout rather than the worktree, so a worktree
 # inherits its project's layout. Tier 2 is for repositories you cannot put a
 # file in -- someone else's, or one whose reset does `git clean -fdx`, which
 # deletes an untracked file at the root along with everything else. It is keyed
 # on the main checkout's name, so customer-portal-test finds customer-portal's.
+# Tier 3 is one you make yourself, and nothing here ships one.
 #
-# Neither: one empty window, which is no worse than the one you would have
-# opened by hand.
+# None of them: one empty window, which is no worse than the one you would
+# have opened by hand.
 workspace_plan_path() {
     local main candidate
-    main=$(workspace_main "$1") || return 1
 
-    candidate="$main/.workspace"
-    if [ -r "$candidate" ]; then
-        printf '%s\n' "$candidate"
-        return 0
+    # The first two tiers have to know which repository this is. A path that is
+    # not in one falls straight through to the default.
+    if main=$(workspace_main "$1"); then
+        candidate="$main/.workspace"
+        if [ -r "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+
+        candidate="$workspace_config/${main##*/}.workspace"
+        if [ -r "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
     fi
 
-    candidate="$workspace_config/${main##*/}.workspace"
+    candidate="$workspace_config/default.workspace"
     if [ -r "$candidate" ]; then
         printf '%s\n' "$candidate"
         return 0
@@ -278,6 +289,10 @@ workspace_after_gate() {
     local pane=$1 offset=$2 cmd=$3 gate=$4 waited=0 rc
 
     while [ ! -f "$gate" ] && [ "$waited" -lt 1800 ]; do
+        # A window closed while its gate was still running leaves nobody to
+        # write that file. Without this the waiter polls for half an hour for
+        # something that will never arrive, and a few of those add up.
+        tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -qx "$pane" || return 0
         sleep 2
         waited=$((waited + 2))
     done
@@ -301,6 +316,9 @@ workspace_down() {
         return 1
     }
     tmux kill-window -t "$win"
+    # Nothing will open this gate now, and the next window to take the id
+    # would find it already open.
+    rm -f "${TMPDIR:-/tmp}/workspace-gate-${win#@}"
 }
 
 # --- capturing a layout -----------------------------------------------------
@@ -312,7 +330,7 @@ workspace_down() {
 # reports the foreground process, so a pane running `pnpm watch` reports node.
 # Those are written with a note to check them.
 workspace_save() {
-    local force=0 general=0 path win main out layout pcmd pcwd rel cmd note name prev='' used=' ' n=0
+    local force=0 general=0 default=0 path win main out layout pcmd pcwd rel cmd note name prev='' used=' ' n=0
 
     while :; do
         case "${1:-}" in
@@ -322,6 +340,10 @@ workspace_save() {
             ;;
         -g)
             general=1
+            shift
+            ;;
+        -d)
+            default=1
             shift
             ;;
         *) break ;;
@@ -350,7 +372,10 @@ workspace_save() {
     # -g forces the general place, for a repository you cannot leave a file in.
     # Otherwise update the plan where it already is, and failing that write the
     # repository's own.
-    if [ "$general" -eq 1 ]; then
+    if [ "$default" -eq 1 ]; then
+        out="$workspace_config/default.workspace"
+        mkdir -p "$workspace_config"
+    elif [ "$general" -eq 1 ]; then
         out="$workspace_config/${main##*/}.workspace"
         mkdir -p "$workspace_config"
     else

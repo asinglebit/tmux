@@ -174,7 +174,12 @@ gives up and opens an empty window.
 | --- | --- | --- |
 | 1 | `<main checkout>/.workspace` | Repositories that are yours to write to |
 | 2 | `~/.config/workspace/<project>.workspace` | Ones that are not |
-| 3 | — | One empty window |
+| 3 | `~/.config/workspace/default.workspace` | Everything else, if you make one |
+| 4 | — | One empty window |
+
+Tier 3 is a file you create; nothing here ships one. Make it and every project
+without a plan of its own opens that way instead of empty. A project actually
+named `default` would collide with it, which is the one name to avoid in tier 2.
 
 Both tiers are keyed on the **main checkout**, never the worktree, so
 `customer-portal-test` uses `customer-portal`'s layout either way.
@@ -221,6 +226,7 @@ then write it down:
 ```sh
 workspace save          # this window, to wherever its plan already lives
 workspace save -g       # to ~/.config/workspace instead, for a repo you cannot write to
+workspace save -d       # as the default, for every project without a plan
 workspace save -f       # overwrite one that is already there
 ```
 
