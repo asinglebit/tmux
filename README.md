@@ -157,6 +157,7 @@ bin/workspace list        every worktree, its branch, and up or down
 bin/workspace up PATH     build the window from the project's own plan
 bin/workspace down PATH   kill it
 bin/workspace save        write this window down as the project's plan
+bin/workspace save -g     ...in ~/.config/workspace, for a repo you cannot write to
 ```
 
 A window is bound to its worktree by a `@workspace` window option, set when the
@@ -165,13 +166,25 @@ per-session, because grouped sessions share their windows.
 
 ### Plans
 
-A project says how its own window is laid out, in a `.workspace` file at the
-root of its **main checkout**. tmuxbar holds no layouts and no list of projects.
+A project says how its own window is laid out. tmuxbar holds no layouts and no
+list of projects -- it asks the repository, then one shared directory, then
+gives up and opens an empty window.
 
-It is read from the main checkout rather than the worktree, which is what lets
-`customer-portal-test` inherit `customer-portal`'s layout -- and what lets the
-file be untracked (a personal layout in a shared repo) without any worktree
-losing it. With no file at all you get atrium over a working shell.
+| | Where | For |
+| --- | --- | --- |
+| 1 | `<main checkout>/.workspace` | Repositories that are yours to write to |
+| 2 | `~/.config/workspace/<project>.workspace` | Ones that are not |
+| 3 | — | One empty window |
+
+Both tiers are keyed on the **main checkout**, never the worktree, so
+`customer-portal-test` uses `customer-portal`'s layout either way.
+
+> **Tier 2 is not only for other people's repositories.** A layout whose gate
+> runs something like `pnpm reset` is usually running `git clean -fdx`, and that
+> removes ignored and untracked files at the root -- so an in-repo `.workspace`
+> you deliberately left untracked gets deleted by the very window it opens. Put
+> those in tier 2. A *committed* `.workspace` is safe, because `git clean` does
+> not touch tracked files.
 
 ```
 # name    from    split size  cwd             delay  command
@@ -206,9 +219,12 @@ Nobody should work out percentages by hand. Split a window until it looks right,
 then write it down:
 
 ```sh
-workspace save          # this window, to its repo's .workspace
+workspace save          # this window, to wherever its plan already lives
+workspace save -g       # to ~/.config/workspace instead, for a repo you cannot write to
 workspace save -f       # overwrite one that is already there
 ```
+
+With no plan yet and no `-g`, it writes the repository's own `.workspace`.
 
 That records tmux's own `#{window_layout}` as a `layout` line, which `up` hands
 straight back to `select-layout`, so the geometry comes back exact to the cell.

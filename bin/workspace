@@ -21,8 +21,11 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/utils.sh
 source "$root/lib/utils.sh"
 
+# Where a layout lives when it cannot live in the repository it describes.
+workspace_config="${XDG_CONFIG_HOME:-$HOME/.config}/workspace"
+
 usage() {
-    echo "usage: workspace {list|up <path>|down <path>|save [-f] [path]|menu|created <path>}" >&2
+    echo "usage: workspace {list|up <path>|down <path>|save [-f] [-g] [path]|menu|created <path>}" >&2
     exit 1
 }
 
@@ -106,12 +109,39 @@ workspace_list() {
 
 # --- building a window ------------------------------------------------------
 
-# The repository's own plan, or the built-in one.
+# Where this worktree's layout is written down, if anywhere.
 #
-# It lives in the MAIN checkout rather than the worktree, so a worktree
-# inherits its project's layout and the file can be untracked without any
-# worktree losing it.
+# Two tiers, most specific first:
 #
+#   1. <main checkout>/.workspace           the repository's own
+#   2. ~/.config/workspace/<project>.workspace
+#
+# Tier 1 is read from the MAIN checkout rather than the worktree, so a worktree
+# inherits its project's layout. Tier 2 is for repositories you cannot put a
+# file in -- someone else's, or one whose reset does `git clean -fdx`, which
+# deletes an untracked file at the root along with everything else. It is keyed
+# on the main checkout's name, so customer-portal-test finds customer-portal's.
+#
+# Neither: one empty window, which is no worse than the one you would have
+# opened by hand.
+workspace_plan_path() {
+    local main candidate
+    main=$(workspace_main "$1") || return 1
+
+    candidate="$main/.workspace"
+    if [ -r "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+
+    candidate="$workspace_config/${main##*/}.workspace"
+    if [ -r "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+    return 1
+}
+
 # A plan is an optional `layout` line plus one line per pane:
 #
 #   name  from  split  size  cwd  delay  command
@@ -124,16 +154,12 @@ workspace_list() {
 # delay  0 to run at once, gate to be the gate, +N for N seconds after it opens
 # cmd    - for a bare shell
 workspace_plan() {
-    local main plan
-    main=$(workspace_main "$1") && plan="$main/.workspace"
-    if [ -n "${plan:-}" ] && [ -r "$plan" ]; then
-        cat "$plan"
+    local plan
+    plan=$(workspace_plan_path "$1") || {
+        printf '%s\n' 'window  -  -  -  .  0  -'
         return
-    fi
-    # Enough to work in: atrium above, somewhere to type below.
-    printf '%s\n' \
-        'atrium  -       -     -    .  0  a' \
-        'work    atrium  v     40%  .  0  -'
+    }
+    cat "$plan"
 }
 
 # tmux's own layout string, when the plan carries one.
@@ -270,12 +296,21 @@ workspace_down() {
 # reports the foreground process, so a pane running `pnpm watch` reports node.
 # Those are written with a note to check them.
 workspace_save() {
-    local force=0 path win main out layout pcmd pcwd rel cmd note name prev='' used=' ' n=0
+    local force=0 general=0 path win main out layout pcmd pcwd rel cmd note name prev='' used=' ' n=0
 
-    [ "${1:-}" = -f ] && {
-        force=1
-        shift
-    }
+    while :; do
+        case "${1:-}" in
+        -f)
+            force=1
+            shift
+            ;;
+        -g)
+            general=1
+            shift
+            ;;
+        *) break ;;
+        esac
+    done
 
     if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
         path=$(workspace_abs "$1")
@@ -295,7 +330,16 @@ workspace_save() {
         echo "workspace: $path is not inside a git repository" >&2
         return 1
     }
-    out="$main/.workspace"
+
+    # -g forces the general place, for a repository you cannot leave a file in.
+    # Otherwise update the plan where it already is, and failing that write the
+    # repository's own.
+    if [ "$general" -eq 1 ]; then
+        out="$workspace_config/${main##*/}.workspace"
+        mkdir -p "$workspace_config"
+    else
+        out=$(workspace_plan_path "$path") || out="$main/.workspace"
+    fi
 
     if [ -e "$out" ] && [ "$force" -eq 0 ]; then
         echo "workspace: $out exists already; pass -f to overwrite it" >&2
