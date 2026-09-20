@@ -41,6 +41,13 @@ workspace_repos() {
         sed 's|/\.git$||'
 }
 
+# The path with every symlink resolved. $HOME is commonly a link -- /home into
+# /var/home on an ostree machine -- and git always reports the resolved form, so
+# a window bound to the unresolved one would never be found again.
+workspace_abs() {
+    (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
+}
+
 # The window showing this worktree, or nothing. Server-wide on purpose: the
 # sessions here are grouped, so a window belongs to the server rather than to
 # whichever session is attached.
@@ -120,7 +127,8 @@ workspace_plan() {
 }
 
 workspace_up() {
-    local path=$1 project win panes='' gate
+    local path project win panes='' gate
+    path=$(workspace_abs "$1")
     local from split size cwd delay cmd target pane n=0
 
     [ -d "$path" ] || {
@@ -220,7 +228,7 @@ workspace_after_gate() {
 
 workspace_down() {
     local win
-    win=$(workspace_window "$1")
+    win=$(workspace_window "$(workspace_abs "$1")")
     [ -n "$win" ] || {
         echo "workspace: no window for $1" >&2
         return 1
@@ -264,7 +272,7 @@ workspace_menu() {
 
 workspace_switch() {
     local win
-    win=$(workspace_window "$1")
+    win=$(workspace_window "$(workspace_abs "$1")")
     [ -n "$win" ] || return 1
     tmux select-window -t "$win"
 }
@@ -274,7 +282,8 @@ workspace_switch() {
 # What WORKTREE_HOOK points at. atrium and guitar both run this, with the event
 # and the path, whenever they make a worktree.
 workspace_created() {
-    local path=$1
+    local path
+    path=$(workspace_abs "$1")
     # Not under tmux: nothing to tell, and that is fine.
     [ -n "${TMUX:-}" ] || return 0
 
