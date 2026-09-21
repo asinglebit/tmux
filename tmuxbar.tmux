@@ -49,6 +49,9 @@ set_options() {
     # cursor is the only cue for which pane is active.
     tmux set-option -g window-style "fg=${fg_hi},bg=${bg}"
     tmux set-option -g window-active-style "fg=${fg_hi},bg=${bg}"
+    # Having removed every other cue above, let programs tell for themselves whether
+    # their pane is the active one. Off by default in tmux.
+    tmux set-option -g focus-events on
     tmux set-window-option -g window-status-activity-style bold
     tmux set-window-option -g window-status-bell-style bold
     tmux set-window-option -g window-status-current-style bold
