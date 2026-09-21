@@ -257,6 +257,25 @@ EOF
     [ -n "$focus" ] && tmux select-pane -t "$focus"
 }
 
+# A waiter in a session of its own, the way setsid(1) would start one.
+#
+# setsid is util-linux and macOS ships no such binary, so the call below failed
+# with "command not found" straight into /dev/null and every gated pane there
+# silently never started -- a customer-portal window came up with its eleven
+# watches, tests and servers sitting at empty prompts. perl is in the base
+# system on both, and `fork && exit` leaves the child a non-leader, which is
+# setsid(2)'s one precondition.
+workspace_detach() {
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$@" </dev/null >/dev/null 2>&1 &
+    else
+        # No trailing `&`: the outer perl exits at the fork, so this already
+        # returns at once, and the grandchild is what carries on.
+        perl -MPOSIX -e 'fork && exit; POSIX::setsid(); exec @ARGV' \
+            -- "$@" </dev/null >/dev/null 2>&1
+    fi
+}
+
 # One pane's command, at the time the plan asked for.
 workspace_send() {
     local pane=$1 delay=$2 cmd=$3 gate=$4
@@ -270,12 +289,13 @@ workspace_send() {
         tmux send-keys -t "$pane" "$cmd; echo \$? > '$gate'" C-m
         ;;
     +*)
-        # setsid, not merely `&`. A waiter left in this script's process
-        # group keeps `tmux run-shell` waiting long after the script itself
-        # has exited, so opening a gated layout froze every tmux client for
-        # the whole length of the install. Redirecting the three streams is
-        # not enough on its own -- the new session is what releases the job.
-        setsid "$0" after-gate "$pane" "${delay#+}" "$cmd" "$gate" </dev/null >/dev/null 2>&1 &
+        # A session of its own, not merely `&`. A waiter left in this
+        # script's process group keeps `tmux run-shell` waiting long after the
+        # script itself has exited, so opening a gated layout froze every tmux
+        # client for the whole length of the install. Redirecting the three
+        # streams is not enough on its own -- the new session is what releases
+        # the job.
+        workspace_detach "$0" after-gate "$pane" "${delay#+}" "$cmd" "$gate"
         ;;
     *)
         tmux send-keys -t "$pane" "$cmd" C-m
