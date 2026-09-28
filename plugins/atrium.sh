@@ -15,25 +15,17 @@ needs_icon=$(get_tmux_option '@tmuxbar-atrium-needs-icon' '●')
 error_icon=$(get_tmux_option '@tmuxbar-atrium-error-icon' '✗')
 none_text=$(get_tmux_option '@tmuxbar-atrium-none-text' '-')
 
-# The worst of two statuses, so the cell says the thing worth acting on.
+# The worse of two statuses, so the cell says the thing worth acting on -- in
+# the order atrium ranks them itself.
 worse_of() {
-    case "$1" in error) echo error; return ;; esac
-    case "$2" in error) echo error; return ;; esac
-    case "$1$2" in *needs-input*)
-        echo needs-input
-        return
-        ;;
-    esac
-    case "$1$2" in *working*)
-        echo working
-        return
-        ;;
-    esac
-    case "$1$2" in *idle*)
-        echo idle
-        return
-        ;;
-    esac
+    local word
+    for word in needs-input working error done idle; do
+        case " $1 $2 " in *" $word "*)
+            echo "$word"
+            return
+            ;;
+        esac
+    done
     echo ''
 }
 
@@ -61,8 +53,8 @@ main() {
         return
     fi
 
-    # The same colour the window list paints this status, so the cell and the
-    # windows it summarises always agree. It does not pulse with them: this
+    # Orange while anything is waiting on you, the way the windows it sums up
+    # are, and the segment's own colours otherwise. It never flickers: this
     # output is cached until the next status-interval, so whatever half of the
     # beat it printed would be the half it wore for the next minute.
     style=$(tmuxbar_atrium_style "$worst")
@@ -71,8 +63,14 @@ main() {
     [ "$needs" -gt 0 ] && out="$out  $needs_icon$needs"
     [ "$error" -gt 0 ] && out="$out  $error_icon$error"
 
-    # A widget's output is not stripped of styles, so the cell styles itself.
-    printf '#[%s]%s\n' "$style" "$out"
+    # A widget's output is not stripped of styles, so the cell styles itself --
+    # and says nothing when it has nothing to say, since `#[default]` would take
+    # the segment's background with it.
+    if [ -n "$style" ]; then
+        printf '#[%s]%s\n' "$style" "$out"
+    else
+        printf '%s\n' "$out"
+    fi
 }
 
 main

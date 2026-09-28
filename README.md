@@ -281,46 +281,67 @@ atrium writes what it needs onto the pane it draws in:
 
 | Option | Scope | Value |
 | --- | --- | --- |
-| `@atrium_status` | pane | `idle`, `working`, `needs-input` or `error` |
+| `@atrium_status` | pane | `idle`, `working`, `needs-input`, `done` or `error` |
 | `@atrium_agents` | pane | `<held> <working> <needs> <error>` |
-| `@atrium_blink` | server | `0` on the dark half of the pulse; lit on anything else, unset included |
+| `@atrium_unseen` | pane | `done` or `error`, set when a turn ends while no client is viewing the window |
+| `@atrium_blink` | server | `0` on the dark half of the flicker; lit on anything else, unset included |
 
-The window list colours each window by the worst thing the atriums **in that
-window** need. That rollup is a format string -- `#{P:#{@atrium_status}}` walks
-the window's own panes as tmux paints -- so there is no daemon, nothing polls,
-and a window with no atrium in it keeps its usual colour.
+The window list colours each window by what the atriums **in that window**
+need, most urgent first. The rollup is a pair of format strings --
+`#{P:#{@atrium_status}}` and `#{P:#{@atrium_unseen}}` walk the window's own
+panes as tmux paints -- so there is no daemon, nothing polls, and a window with
+no atrium in it keeps its usual colour.
 
-| Status | Window name | Palette key | Means |
-| --- | --- | --- | --- |
-| `needs-input` | blue, pulsing | `blue` | An agent is waiting on you |
-| `working` | orange, pulsing | `orange` | It is waiting on the model |
-| `idle` | green | `green` | It has finished and wants nothing |
-| `error` | red | `red` | It failed |
+| The window holds | Window name | Palette key |
+| --- | --- | --- |
+| an agent waiting on you | orange | `orange` |
+| a failed turn, not yet visited | red | `red` |
+| a finished turn, not yet visited | green | `green` |
+| a working agent | its usual grey, flickering a shade lighter | the theme's own |
+| anything else | its usual grey | the theme's own |
 
-Only the two that are still waiting pulse, so the bar moves where something is
-going on and sits still where it is not. The `atrium` widget's cell takes the
-same colours but holds them steady: its output is cached until the next
-`status-interval`, so whichever half of the beat it printed is the half it would
-wear for the next minute.
+**A visit is what clears green and red.** tmuxbar hooks
+`session-window-changed`, `client-session-changed` and `client-attached`, in a
+slot of their own so applying again replaces rather than adds; landing on a
+window by any of them unsets `@atrium_unseen` on every pane in it. atrium never
+sets it on a window somebody is looking at, so a turn that ends in front of you
+never lights up at all. Pane options are shared by every session a window is
+linked into, so a visit from any terminal counts for all of them -- which is why
+this is a pane option and not tmux's own bell flag, which a group of sessions
+copies among themselves whenever a window is created.
 
-**The pulse is drawn, not asked for.** `#[blink]` is the obvious way to write
+A session with a hook of the same name shadows the global one. That is harmless
+for `client-attached`, which the shell setup sets on each new session: a new
+terminal lands on a fresh window anyway.
+
+**Working is the only thing that moves.** A question is orange and stays
+orange; a result is green or red and holds still until it is seen. Working
+flickers between the grey the window already wears and one a shade lighter --
+the midpoint of `muted` and `fg` for other windows, of `fg` and `fg_hi` for the
+current one -- so a busy window still reads as part of the list rather than as
+something to act on. A theme that is not hex falls back to the brighter slot.
+The `atrium` widget's cell is orange while anything is waiting on you and plain
+otherwise: its output is cached until the next `status-interval`, and it sums up
+every window, so it can know neither the beat nor what has been seen.
+
+**The flicker is drawn, not asked for.** `#[blink]` is the obvious way to write
 this and it does not work: it emits SGR 5, which ghostty parses and ignores.
 Nor can the bar keep its own time -- tmux repaints the status line only when
 something asks it to. So atrium keeps the beat, because it is the thing already
-running and already knows an agent is waiting: while one is, it writes
+running and already knows an agent is working: while one is, it writes
 `@atrium_blink` and asks for a repaint twice a second, and the window drops to
-the theme's `muted` on the dark half. Nothing waiting, nothing ticking.
+its usual grey on the dark half. Nothing working, nothing ticking.
 
 A window whose beat has stopped -- no atrium running, one killed before it could
-stop cleanly -- holds the **lit** colour. The format dims on an explicit `0` and
+stop cleanly -- holds the **lit** shade. The format dims on an explicit `0` and
 lights on everything else, so the worst a missing beat can do is stop the
-movement, never leave a window greyed out.
+movement.
 
-Colours come from `~/.config/atrium/theme.json`, falling back to guitar's, which
-is the same one-way fallback atrium itself does: retheme atrium and the bar
-follows, and the three tools can never disagree about what red is. With neither
-installed the theme's own `accent` stands in for both red and blue -- the nine
-slots have neither -- and the pulse is all that tells a question from a failure.
+Orange, red and green come from `~/.config/atrium/theme.json`, falling back to
+guitar's, which is the same one-way fallback atrium itself does: retheme atrium
+and the bar follows, and the three tools can never disagree about what red is.
+With neither installed the theme's own `accent` stands in for both orange and
+red and `fg_hi` for green -- the nine slots have none of them.
 
 Because atrium pushes a repaint when it publishes, feedback does not wait for
 `@tmuxbar-refresh-rate`.
